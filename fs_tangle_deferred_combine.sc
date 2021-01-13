@@ -9,8 +9,9 @@ $input v_texcoord0
 #include "parameters.sh"
 #include "normal_encoding.sh"
 
-SAMPLER2D(s_color, 0);
-SAMPLER2D(s_normal, 1);
+SAMPLER2D(s_normal, 0);
+SAMPLER2D(s_depth, 1);
+SAMPLER2D(s_shadows, 2);
 
 float ShadertoyNoise (vec2 uv) {
 	return fract(sin(dot(uv.xy, vec2(12.9898,78.233))) * 43758.5453123);
@@ -19,6 +20,18 @@ float ShadertoyNoise (vec2 uv) {
 int ModHelper (float a, float b)
 {
 	return int( a - (b*floor(a/b)));
+}
+
+// from assao sample, cs_assao_prepare_depths.sc
+vec3 NDCToViewspace( vec2 pos, float viewspaceDepth )
+{
+	vec3 ret;
+
+	ret.xy = (u_ndcToViewMul * pos.xy + u_ndcToViewAdd) * viewspaceDepth;
+
+	ret.z = viewspaceDepth;
+
+	return ret;
 }
 
 void main()
@@ -44,18 +57,37 @@ void main()
 
 	vec4 normalRoughness = texture2D(s_normal, texCoord).xyzw;
 	vec3 normal = NormalDecode(normalRoughness.xyz);
-	float roughness = 0.5;
+	float roughness = normalRoughness.w;
 
 	// need to get a valid view vector for any microfacet stuff :(
 	float gloss = 1.0-roughness;
 	float specPower = 1022.0 * gloss + 2.0;
 
-	vec3 light = normalize(vec3(-0.2, 1.0, -0.2));
-	float NdotL = saturate(dot(normal, light));
-	float diff = NdotL*0.99 + 0.01;
-	float spec = 5.0 * pow(NdotL, specPower);
 
-	float lightAmt = (diff + spec) * sn;
+	// transform normal into view space
+	mat4 worldToView = mat4(
+		u_worldToView0,
+		u_worldToView1,
+		u_worldToView2,
+		u_worldToView3
+	);
+	vec3 vsNormal = instMul(worldToView, vec4(normal, 0.0)).xyz;
 
-	gl_FragColor = vec4(vec3_splat(lightAmt), 1.0);
+	// read depth and recreate position
+	float linearDepth = texture2D(s_depth, texCoord).x;
+	vec3 viewSpacePosition = NDCToViewspace(texCoord, linearDepth);
+
+	float shadow = texture2D(s_shadows, texCoord).x;
+
+	vec3 light = (u_lightPosition - viewSpacePosition);
+	float lightDistSq = dot(light, light) + 1e-5;
+	light = normalize(light);
+
+	float NdotL = saturate(dot(vsNormal, light));
+	float diffuse = NdotL * (1.0/lightDistSq);
+	float specular = 5.0 * pow(NdotL, specPower);
+
+	float lightAmount = mix(diffuse, specular, 0.04) * (shadow * sn);
+
+	gl_FragColor = vec4(vec3_splat(lightAmount), 1.0);
 }

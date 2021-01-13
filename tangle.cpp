@@ -497,13 +497,6 @@ public:
 			{
 				bgfx::setViewName(view, "combine");
 
-				// for some reason, previous draws texture lingering in transform stack
-				// need to clear out, otherwise this copy is garbled. this used to work
-				// and broke after updating, but i last updated like 2 years ago.
-				float identity[16];
-				bx::mtxIdentity(identity);
-				bgfx::setTransform(identity);
-
 				bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 				bgfx::setViewTransform(view, NULL, orthoProj);
 				bgfx::setViewFrameBuffer(view, m_currentColor.m_buffer);
@@ -512,10 +505,9 @@ public:
 					| BGFX_STATE_WRITE_A
 					| BGFX_STATE_DEPTH_TEST_ALWAYS
 					);
-				bgfx::setTexture(0, s_color, m_gbufferTex[GBUFFER_RT_COLOR]);
-				bgfx::setTexture(1, s_normal, m_gbufferTex[GBUFFER_RT_NORMAL]);
-				bgfx::setTexture(2, s_depth, m_linearDepth.m_texture);
-				bgfx::setTexture(3, s_shadows, m_shadows.m_texture);
+				bgfx::setTexture(0, s_normal, m_gbufferTex[GBUFFER_RT_NORMAL]);
+				bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
+				bgfx::setTexture(2, s_shadows, m_shadows.m_texture);
 				m_uniforms.submit();
 				screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
 				bgfx::submit(view, m_combineProgram);
@@ -1189,17 +1181,17 @@ public:
 	int32_t m_size[2];
 
 	// UI parameters
-	int32_t m_noiseType = 2;
+	int32_t m_noiseType = 0;
 	bool m_dynamicNoise = true;
 	bool m_useTemporalPass = true;
 	int32_t m_spatialSampleType = 1;
-	int32_t m_denoisePasses = 5;
+	int32_t m_denoisePasses = 1;
 	float m_sigmaDepth = 0.05f;
 	float m_sigmaNormal = 128.0f;
-	bool m_enableTxaa = false;
+	bool m_enableTxaa = true;
 	float m_feedbackMin = 0.8f;
 	float m_feedbackMax = 0.95f;
-	bool m_applyMitchellFilter = true;
+	bool m_applyMitchellFilter = false;
 	bool m_useTxaaSlow = false;
 
 	bool m_displayShadows = false;
@@ -1208,7 +1200,7 @@ public:
 	float m_shadowRadiusPixels = 25.0f;
 	int32_t m_shadowSteps = 8;
 	bool m_moveLight = true;
-	int32_t m_contactShadowsMode = 0;
+	int32_t m_contactShadowsMode = 1;
 	bool m_useScreenSpaceRadius = false;
 };
 

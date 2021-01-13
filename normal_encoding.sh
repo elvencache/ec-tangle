@@ -6,7 +6,7 @@
 #ifndef NORMAL_ENCODING_SH
 #define NORMAL_ENCODING_SH
 
-#define NE_USE_OCTAHEDRAL_REPRESENTATION   0
+#define NE_USE_OCTAHEDRAL_REPRESENTATION   1
 
 // From "A Survey of Efficient Representations for Independent Unit Vectors"
 // http://jcgt.org/published/0003/02/01/paper.pdf
