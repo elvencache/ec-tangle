@@ -40,7 +40,7 @@ static const char * s_meshPaths[] =
 
 static const float s_meshScale[] =
 {
-	0.25f,
+	0.15f,
 	0.05f,
 	0.15f,
 	0.25f,
@@ -271,6 +271,9 @@ public:
 			m_meshes[ii] = meshLoad(s_meshPaths[ii]);
 		}
 
+		// sphere is first mesh
+		m_lightModel.mesh = 0;
+
 		// Randomly create some models
 		bx::RngMwc mwc;
 		for (uint32_t ii = 0; ii < BX_COUNTOF(m_models); ++ii)
@@ -443,6 +446,27 @@ public:
 					);
 
 				drawAllModels(view, m_gbufferProgram, m_uniforms);
+
+				// draw sphere to visualize light
+				{
+					const float scale = s_meshScale[m_lightModel.mesh];
+					float mtx[16];
+					bx::mtxSRT(mtx
+						, scale
+						, scale
+						, scale
+						, 0.0f
+						, 0.0f
+						, 0.0f
+						, m_lightModel.position[0]
+						, m_lightModel.position[1]
+						, m_lightModel.position[2]
+						);
+
+					m_uniforms.submit();
+					meshSubmit(m_meshes[m_lightModel.mesh], view, m_sphereProgram, mtx);
+				}
+
 				++view;
 			}
 
