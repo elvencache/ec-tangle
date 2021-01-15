@@ -13,8 +13,10 @@ $input v_texcoord0
 SAMPLER2D(s_color,			0);
 SAMPLER2D(s_normal,			1);
 SAMPLER2D(s_velocity,		2);
-SAMPLER2D(s_previousColor,	3); // previous color
-SAMPLER2D(s_previousNormal,	4); // previous normal
+SAMPLER2D(s_depth,			3);
+SAMPLER2D(s_previousColor,	4);
+SAMPLER2D(s_previousNormal,	5);
+SAMPLER2D(s_previousDepth,  6);
 
 #define COS_PI_OVER_4   0.70710678118
 
@@ -29,6 +31,11 @@ void main()
 	// offset to last pixel
 	vec2 velocity = texture2D(s_velocity, texCoord).xy;
 	vec2 texCoordPrev = GetTexCoordPreviousNoJitter(texCoord, velocity);
+
+	float depth = texture2D(s_depth, texCoord).x;
+	float depthSpan = fwidth(depth) * u_temporalSigmaDepth;
+	float depthMin = depth - depthSpan;
+	float depthMax = depth + depthSpan;
 
 	// SVGF approach suggests sampling and test/rejecting 4 contributing
 	// samples individually and then doing custom bilinear filter of result
@@ -73,6 +80,19 @@ void main()
 		vec3 sampleNormal = NormalDecode(texture2D(s_previousNormal, coords[i]).xyz);
 		float normalSimilarity = dot(normal, sampleNormal);
 		float weight = (normalSimilarity < COS_PI_OVER_4) ? 0.0 : 1.0;
+
+		if (0.0 < u_useTemporalDepthCompare)
+		{
+			float sampleDepth = texture2D(s_previousDepth, coords[i]).x;
+			float sampleDepthSpan = fwidth(sampleDepth) * u_temporalSigmaDepth;
+			float sampleDepthMin = sampleDepth - sampleDepthSpan;
+			float sampleDepthMax = sampleDepth + sampleDepthSpan;
+
+			float depthWeight = (depthMin <= sampleDepthMax) ? 1.0 : 0.0;
+			depthWeight *= (sampleDepthMin <= depthMax) ? 1.0 : 0.0;
+
+			weight *= depthWeight;
+		}
 
 		vec4 sampleColor = texture2D(s_previousColor, coords[i]);
 

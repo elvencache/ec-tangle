@@ -1,5 +1,5 @@
 $input a_position, a_normal, a_texcoord0
-$output v_normal, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3
+$output v_normal, v_texcoord0, v_texcoord1, v_texcoord2
 
 /*
 * Copyright 2021 elven cache. All rights reserved.
@@ -50,5 +50,4 @@ void main()
 	vec3 view = normalize(wsCamPos - wsPos);
 
 	v_texcoord2 = vec4(wsPos, 1.0);
-	v_texcoord3 = vec4(wsCamPos, 1.0);
 }

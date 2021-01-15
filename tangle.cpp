@@ -18,6 +18,8 @@
 
 namespace {
 
+#define USE_LINEAR_FOR_PREVIOUS_DEPTH	1
+
 #define DENOISE_MAX_PASSES		6
 
 // Gbuffer has multiple render targets
@@ -95,8 +97,8 @@ struct Uniforms
 			/*  2    */ struct { float m_unused2; float m_applyMitchellFilter; float m_options[2]; };
 			/*  3-6  */ struct { float m_worldToViewPrev[16]; };
 			/*  7-10 */ struct { float m_viewToProjPrev[16]; };
-			/* 11    */ struct { float m_noiseType; float m_unused11[3]; };
-			/* 12    */ struct { float m_denoiseStep; float m_sigmaDepth; float m_sigmaNormal; float m_unused12; };
+			/* 11    */ struct { float m_noiseType; float m_temporalSigmaDepth; float m_unused11[2]; };
+			/* 12    */ struct { float m_denoiseStep; float m_sigmaDepth; float m_sigmaNormal; float m_useTemporalDepthCompare; };
 
 			/* 13    */ struct { float m_frameIdx; float m_shadowRadius; float m_shadowSteps; float m_useNoiseOffset; };
 			/* 14    */ struct { float m_depthUnpackConsts[2]; float m_contactShadowsMode; float m_useScreenSpaceRadius; };
@@ -250,6 +252,7 @@ public:
 		s_depth = bgfx::createUniform("s_depth", bgfx::UniformType::Sampler); // Depth gbuffer
 		s_previousColor = bgfx::createUniform("s_previousColor", bgfx::UniformType::Sampler); // Previous frame's result
 		s_previousNormal = bgfx::createUniform("s_previousNormal", bgfx::UniformType::Sampler); // Previous frame's gbuffer normal
+		s_previousDepth = bgfx::createUniform("s_previousDepth", bgfx::UniformType::Sampler);
 		s_shadows = bgfx::createUniform("s_shadows", bgfx::UniformType::Sampler);
 
 		// Create program from shaders.
@@ -352,6 +355,7 @@ public:
 		bgfx::destroy(s_depth);
 		bgfx::destroy(s_previousColor);
 		bgfx::destroy(s_previousNormal);
+		bgfx::destroy(s_previousDepth);
 		bgfx::destroy(s_shadows);
 
 		destroyFramebuffers();
@@ -558,8 +562,10 @@ public:
 				bgfx::setTexture(0, s_color, lastTex);
 				bgfx::setTexture(1, s_normal, m_gbufferTex[GBUFFER_RT_NORMAL]);
 				bgfx::setTexture(2, s_velocity, m_gbufferTex[GBUFFER_RT_VELOCITY]);
-				bgfx::setTexture(3, s_previousColor, m_previousDenoise.m_texture);
-				bgfx::setTexture(4, s_previousNormal, m_previousNormal.m_texture);
+				bgfx::setTexture(3, s_depth, m_linearDepth.m_texture);
+				bgfx::setTexture(4, s_previousColor, m_previousDenoise.m_texture);
+				bgfx::setTexture(5, s_previousNormal, m_previousNormal.m_texture);
+				bgfx::setTexture(6, s_previousDepth, m_previousDepth.m_texture);
 
 				m_uniforms.submit();
 				screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
@@ -750,7 +756,7 @@ public:
 				}
 			}
 
-			// copy the normal buffer for next time
+			// copy buffers for next time
 			{
 				bgfx::setViewName(view, "copy normals");
 				bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
@@ -758,6 +764,20 @@ public:
 				bgfx::setViewFrameBuffer(view, m_previousNormal.m_buffer);
 				bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_DEPTH_TEST_ALWAYS);
 				bgfx::setTexture(0, s_color, m_gbufferTex[GBUFFER_RT_NORMAL]);
+				screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
+				bgfx::submit(view, m_copyProgram);
+				++view;
+
+				bgfx::setViewName(view, "copy depth");
+				bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
+				bgfx::setViewTransform(view, NULL, orthoProj);
+				bgfx::setViewFrameBuffer(view, m_previousDepth.m_buffer);
+#if USE_LINEAR_FOR_PREVIOUS_DEPTH
+				bgfx::setTexture(0, s_color, m_linearDepth.m_texture);
+#else
+				bgfx::setTexture(0, s_color, m_gbufferTex[GBUFFER_RT_DEPTH]);
+#endif
+				bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_DEPTH_TEST_ALWAYS);
 				screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
 				bgfx::submit(view, m_copyProgram);
 				++view;
@@ -825,6 +845,8 @@ public:
 			{
 				ImGui::Text("temporal denoise pass controls:");
 				ImGui::Checkbox("use temporal pass", &m_useTemporalPass);
+				ImGui::Checkbox("use depth compare", &m_useTemporalDepthCompare);
+				ImGui::SliderFloat("tx depth sigma", &m_temporalSigmaDepth, 0.0f, 2.0f);
 				ImGui::Separator();
 			}
 
@@ -1016,6 +1038,7 @@ public:
 		m_txaaColor.init(m_size[0], m_size[1], bgfx::TextureFormat::RG11B10F, bilinearFlags);
 		m_temporaryColor.init(m_size[0], m_size[1], bgfx::TextureFormat::RG11B10F, bilinearFlags);
 		m_previousNormal.init(m_size[0], m_size[1], bgfx::TextureFormat::RG11B10F, pointSampleFlags);
+		m_previousDepth.init(m_size[0], m_size[1], bgfx::TextureFormat::R16F, pointSampleFlags);
 		m_previousDenoise.init(m_size[0], m_size[1], bgfx::TextureFormat::RG11B10F, bilinearFlags);
 		m_linearDepth.init(m_size[0], m_size[1], bgfx::TextureFormat::R16F, pointSampleFlags);
 		m_shadows.init(m_size[0], m_size[1], bgfx::TextureFormat::R16F, pointSampleFlags);
@@ -1031,6 +1054,7 @@ public:
 		m_txaaColor.destroy();
 		m_temporaryColor.destroy();
 		m_previousNormal.destroy();
+		m_previousDepth.destroy();
 		m_previousDenoise.destroy();
 		m_linearDepth.destroy();
 		m_shadows.destroy();
@@ -1075,6 +1099,8 @@ public:
 		m_uniforms.m_noiseType = float(m_noiseType);
 		m_uniforms.m_sigmaDepth = m_sigmaDepth;
 		m_uniforms.m_sigmaNormal = m_sigmaNormal;
+		m_uniforms.m_useTemporalDepthCompare = m_useTemporalDepthCompare ? 1.0f : 0.0f;
+		m_uniforms.m_temporalSigmaDepth = m_temporalSigmaDepth;
 
 				m_uniforms.m_displayShadows = m_displayShadows ? 1.0f : 0.0f;
 		m_uniforms.m_frameIdx = m_dynamicNoise
@@ -1162,6 +1188,7 @@ public:
 	bgfx::UniformHandle s_depth;
 	bgfx::UniformHandle s_previousColor;
 	bgfx::UniformHandle s_previousNormal;
+	bgfx::UniformHandle s_previousDepth;
 	bgfx::UniformHandle s_shadows;
 
 	bgfx::FrameBufferHandle m_gbuffer;
@@ -1172,6 +1199,7 @@ public:
 	RenderTarget m_txaaColor;
 	RenderTarget m_temporaryColor; // need another buffer to ping-pong results
 	RenderTarget m_previousNormal;
+	RenderTarget m_previousDepth;
 	RenderTarget m_previousDenoise; // color output by first spatial denoise pass, input to next frame as previous color
 	RenderTarget m_linearDepth;
 	RenderTarget m_shadows;
@@ -1208,6 +1236,8 @@ public:
 	int32_t m_noiseType = 0;
 	bool m_dynamicNoise = true;
 	bool m_useTemporalPass = true;
+	bool m_useTemporalDepthCompare = true;
+	float m_temporalSigmaDepth = 0.5f;
 	int32_t m_spatialSampleType = 1;
 	int32_t m_denoisePasses = 1;
 	float m_sigmaDepth = 0.05f;

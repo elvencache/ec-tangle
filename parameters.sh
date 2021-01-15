@@ -24,9 +24,11 @@ uniform vec4 u_params[25];
 #define u_viewToProjPrev3			(u_params[10])
 
 #define u_noiseType					(u_params[11].x) // 0=none, 1=dither, 2=random
+#define u_temporalSigmaDepth		(u_params[11].y)
 #define u_texCoordStep				(u_params[12].x)
 #define u_sigmaDepth				(u_params[12].y)
 #define u_sigmaNormal				(u_params[12].z)
+#define u_useTemporalDepthCompare	(u_params[12].w)
 
 #define u_frameIdx					(u_params[13].x)
 #define u_shadowRadius				(u_params[13].y)
