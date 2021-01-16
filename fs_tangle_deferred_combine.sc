@@ -85,7 +85,11 @@ void main()
 
 	float NdotL = saturate(dot(vsNormal, light));
 	float diffuse = NdotL * (1.0/lightDistSq);
-	float specular = 5.0 * pow(NdotL, specPower);
+	
+	vec3 V = -normalize(viewSpacePosition);
+	vec3 H = normalize(V+light);
+	float NdotH = saturate(dot(vsNormal, H));
+	float specular = 5.0 * pow(NdotH, specPower);
 
 	float lightAmount = mix(diffuse, specular, 0.04) * (shadow * sn);
 
