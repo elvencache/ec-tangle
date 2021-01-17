@@ -53,5 +53,7 @@ uniform vec4 u_params[26];
 #define u_viewToProj3				(u_params[24])
 
 #define u_sharpenMaximum			(u_params[25].x)
+#define u_focusPoint				(u_params[25].y)
+#define u_focusScale				(u_params[25].z)
 
 #endif // PARAMETERS_SH

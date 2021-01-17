@@ -107,7 +107,7 @@ struct Uniforms
 			/* 17-20 */ struct { float m_worldToView[16]; }; // built-in u_view will be transform for quad during screen passes
 			/* 21-24 */ struct { float m_viewToProj[16]; };	 // built-in u_proj will be transform for quad during screen passes
 
-			/* 25    */ struct { float m_sharpenMaximum; float m_unused25[3]; };
+			/* 25    */ struct { float m_sharpenMaximum; float m_focusPoint; float m_focusScale; float m_unused25; };
 		};
 
 		float m_params[NumVec4 * 4];
@@ -270,6 +270,7 @@ public:
 		m_linearDepthProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_linear_depth");
 		m_shadowsProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_screen_space_shadows");
 		m_sharpenProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_sharpen");
+		m_dofProgram				= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_sp");
 
 		// Load some meshes
 		for (uint32_t ii = 0; ii < BX_COUNTOF(s_meshPaths); ++ii)
@@ -349,6 +350,7 @@ public:
 		bgfx::destroy(m_linearDepthProgram);
 		bgfx::destroy(m_shadowsProgram);
 		bgfx::destroy(m_sharpenProgram);
+		bgfx::destroy(m_dofProgram);
 
 		m_uniforms.destroy();
 
@@ -490,7 +492,6 @@ public:
 			// Convert depth to linear depth for shadow depth compare
 			{
 				bgfx::setViewName(view, "linear depth");
-
 				bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 				bgfx::setViewTransform(view, NULL, orthoProj);
 				bgfx::setViewFrameBuffer(view, m_linearDepth.m_buffer);
@@ -509,7 +510,6 @@ public:
 			// Do screen space shadows
 			{
 				bgfx::setViewName(view, "screen space shadows");
-
 				bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 				bgfx::setViewTransform(view, NULL, orthoProj);
 				bgfx::setViewFrameBuffer(view, m_shadows.m_buffer);
@@ -528,7 +528,6 @@ public:
 			// Shade gbuffer
 			{
 				bgfx::setViewName(view, "combine");
-
 				bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 				bgfx::setViewTransform(view, NULL, orthoProj);
 				bgfx::setViewFrameBuffer(view, m_currentColor.m_buffer);
@@ -553,7 +552,6 @@ public:
 			if (m_useTemporalPass && m_havePrevious)
 			{
 				bgfx::setViewName(view, "denoise temporal");
-
 				bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 				bgfx::setViewTransform(view, NULL, orthoProj);
 				bgfx::setViewFrameBuffer(view, m_temporaryColor.m_buffer);
@@ -650,7 +648,6 @@ public:
 			// apply lighting
 			{
 				bgfx::setViewName(view, "apply lighting");
-
 				bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 				bgfx::setViewTransform(view, NULL, orthoProj);
 
@@ -683,7 +680,6 @@ public:
 				// Draw txaa to txaa buffer
 				{
 					bgfx::setViewName(view, "temporal aa");
-
 					bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 					bgfx::setViewTransform(view, NULL, orthoProj);
 					bgfx::setViewFrameBuffer(view, m_txaaColor.m_buffer);
@@ -700,12 +696,12 @@ public:
 					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
 					bgfx::submit(view, m_txaaProgram);
 					++view;
+					lastTex = m_txaaColor.m_texture;
 				}
 			
 				// Copy txaa result to previous
 				{
 					bgfx::setViewName(view, "copy2previous");
-
 					bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 					bgfx::setViewTransform(view, NULL, orthoProj);
 					bgfx::setViewFrameBuffer(view, m_previousColor.m_buffer);
@@ -714,16 +710,43 @@ public:
 						| BGFX_STATE_WRITE_A
 						| BGFX_STATE_DEPTH_TEST_ALWAYS
 						);
-					bgfx::setTexture(0, s_color, m_txaaColor.m_texture);
+					bgfx::setTexture(0, s_color, lastTex);
 					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
 					bgfx::submit(view, m_copyProgram);
 					++view;
 				}
 
-				// Copy txaa result to swap chain
+				// Copy txaa result to swap chain or temporary
 				{
 					bgfx::setViewName(view, "display");
+					bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
+					bgfx::setViewTransform(view, NULL, orthoProj);
 
+					if (m_useBokehDof)
+					{
+						bgfx::setViewFrameBuffer(view, m_temporaryColor.m_buffer);
+					}
+					else
+					{
+						bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+					}
+
+					bgfx::setState(0
+						| BGFX_STATE_WRITE_RGB
+						| BGFX_STATE_WRITE_A
+						| BGFX_STATE_DEPTH_TEST_ALWAYS
+						);
+					bgfx::setTexture(0, s_color, lastTex);
+					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
+					bgfx::submit(view, displayProgram);
+					++view;
+					lastTex = m_temporaryColor.m_texture;
+				}
+
+				// optionally, apply dof
+				if (m_useBokehDof)
+				{
+					bgfx::setViewName(view, "bokeh dof single pass");
 					bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 					bgfx::setViewTransform(view, NULL, orthoProj);
 					bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
@@ -732,11 +755,13 @@ public:
 						| BGFX_STATE_WRITE_A
 						| BGFX_STATE_DEPTH_TEST_ALWAYS
 						);
-					bgfx::setTexture(0, s_color, m_txaaColor.m_texture);
+					bgfx::setTexture(0, s_color, lastTex);
+					bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
 					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
-					bgfx::submit(view, displayProgram);
+					bgfx::submit(view, m_dofProgram);
 					++view;
 				}
+
 			}
 			else
 			{
@@ -752,7 +777,16 @@ public:
 
 					bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
 					bgfx::setViewTransform(view, NULL, orthoProj);
-					bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+
+					if (m_useBokehDof)
+					{
+						bgfx::setViewFrameBuffer(view, m_temporaryColor.m_buffer);
+					}
+					else
+					{
+						bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+					}
+
 					bgfx::setState(0
 						| BGFX_STATE_WRITE_RGB
 						| BGFX_STATE_WRITE_A
@@ -760,6 +794,26 @@ public:
 					bgfx::setTexture(0, s_color, lastTex);
 					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
 					bgfx::submit(view, displayProgram);
+					++view;
+					lastTex = m_temporaryColor.m_texture;
+				}
+
+				// optionally, apply dof
+				if (m_useBokehDof)
+				{
+					bgfx::setViewName(view, "bokeh dof single pass");
+					bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
+					bgfx::setViewTransform(view, NULL, orthoProj);
+					bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+					bgfx::setState(0
+						| BGFX_STATE_WRITE_RGB
+						| BGFX_STATE_WRITE_A
+						| BGFX_STATE_DEPTH_TEST_ALWAYS
+						);
+					bgfx::setTexture(0, s_color, lastTex);
+					bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
+					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
+					bgfx::submit(view, m_dofProgram);
 					++view;
 				}
 			}
@@ -950,6 +1004,7 @@ public:
 				ImGui::Separator();
 			}
 
+			if (ImGui::CollapsingHeader("CAS"))
 			{
 				ImGui::Checkbox("use CAS sharpen", &m_useSharpen);
 				ImGui::SliderFloat("sharpen strength", &m_sharpenStrength, 0.0f, 1.0f);
@@ -962,6 +1017,14 @@ public:
 					ImGui::Text("knob to lerp between no sharpen (0) and heavy sharpen (-0.24).");
 					ImGui::EndTooltip();
 				}
+				ImGui::Separator();
+			}
+
+			// depth of field
+			{
+				ImGui::Checkbox("use bokeh dof", &m_useBokehDof);
+				ImGui::SliderFloat("focusPoint", &m_focusPoint, 1.0f, 20.0f);
+				ImGui::SliderFloat("focusScale", &m_focusScale, 0.0f, 2.0f);
 			}
 
 			ImGui::End();
@@ -1183,6 +1246,11 @@ public:
 			bx::vec4MulMtx(viewSpaceLightPosition, lightPosition, m_view);
 			bx::memCopy(m_uniforms.m_lightPosition, viewSpaceLightPosition, 3*sizeof(float));
 		}
+
+		{
+			m_uniforms.m_focusPoint = m_focusPoint;
+			m_uniforms.m_focusScale = m_focusScale;
+		}
 	}
 
 
@@ -1206,6 +1274,7 @@ public:
 	bgfx::ProgramHandle m_linearDepthProgram;
 	bgfx::ProgramHandle m_shadowsProgram;
 	bgfx::ProgramHandle m_sharpenProgram;
+	bgfx::ProgramHandle m_dofProgram;
 
 	// Shader uniforms
 	Uniforms m_uniforms;
@@ -1280,6 +1349,10 @@ public:
 
 	bool m_useSharpen = true;
 	float m_sharpenStrength = 0.5f;
+
+	bool m_useBokehDof = true;
+	float m_focusPoint = 2.0f;
+	float m_focusScale = 1.0f;
 
 	bool m_displayShadows = false;
 	bool m_useNoiseOffset = true;
