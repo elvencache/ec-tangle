@@ -54,6 +54,8 @@ uniform vec4 u_params[27];
 
 #define u_sharpenMaximum			(u_params[25].x)
 
+#define u_blurSteps					(u_params[25].y)
+#define u_useSqrtDistribution		(u_params[25].z)
 #define u_maxBlurSize				(u_params[26].x)
 #define u_focusPoint				(u_params[26].y)
 #define u_focusScale				(u_params[26].z)

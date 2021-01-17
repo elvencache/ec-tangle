@@ -60,11 +60,13 @@ vec3 DepthOfField (vec2 texCoord, float focusPoint, float focusScale)
 
 	// as sample count gets lower, visible banding. disrupt with noise.
 	// use a better random/noise/dither function than this..
-	float random = ShadertoyNoise(texCoord.xy + vec2(314.0, 159.0)*u_frameIdx);
+	vec2 pixelCoord = texCoord.xy * u_viewRect.zw;
+	float random = ShadertoyNoise(pixelCoord + vec2(314.0, 159.0)*u_frameIdx);
 	float theta = random * TWO_PI;
 	float thetaStep = GOLDEN_ANGLE;
 
 	float total = 1.0;
+
 	float radius = u_radiusScale;
 	while (radius < u_maxBlurSize)
 	{
@@ -84,6 +86,49 @@ vec3 DepthOfField (vec2 texCoord, float focusPoint, float focusScale)
 		radius += (u_radiusScale/radius);
 		theta += thetaStep;
 	}
+
+	return color * (1.0/total);
+}
+
+// modified version that offsets rotation by noise, to reduce banding at lower sample counts
+// also uses sqrt distribution for directly choosing sample count, visually similar
+vec3 DepthOfFieldSqrt (vec2 texCoord, float focusPoint, float focusScale)
+{
+	float depth = texture2D(s_depth, texCoord).x;
+	float centerSize = GetBlurSize(depth, focusPoint, focusScale);
+	vec3 color = texture2D(s_color, texCoord).xyz;
+
+	// as sample count gets lower, visible banding. disrupt with noise.
+	// use a better random/noise/dither function than this..
+	vec2 pixelCoord = texCoord.xy * u_viewRect.zw;
+	float random = ShadertoyNoise(pixelCoord + vec2(314.0, 159.0)*u_frameIdx);
+	float theta = random * TWO_PI;
+	float thetaStep = GOLDEN_ANGLE;
+
+	float total = 1.0;
+
+	float radiusFraction = 0.5 / u_blurSteps;
+	while (radiusFraction < 1.0)
+	{
+		float radius = sqrt(radiusFraction) * u_maxBlurSize;
+
+		vec2 spiralCoord = texCoord + vec2(cos(theta), sin(theta)) * u_viewTexel.xy * radius;
+		vec3 sampleColor = texture2D(s_color, spiralCoord).xyz;
+		float sampleDepth = texture2D(s_depth, spiralCoord).x;
+
+		float sampleSize = GetBlurSize(sampleDepth, focusPoint, focusScale);
+		if (sampleDepth > depth)
+		{
+			sampleSize = clamp(sampleSize, 0.0, centerSize*2.0);
+		}
+		float m = smoothstep(radius-0.5, radius+0.5, sampleSize);
+		color += mix(color/total, sampleColor, m);
+		total += 1.0;
+
+		radiusFraction += (1.0 / u_blurSteps);
+		theta += thetaStep;
+	}
+
 	return color * (1.0/total);
 }
 
@@ -91,7 +136,15 @@ void main()
 {
 	vec2 texCoord = v_texcoord0.xy;
 
-	vec3 output = DepthOfField(texCoord, u_focusPoint, u_focusScale);
+	vec3 output;
+	if (0.0 < u_useSqrtDistribution)
+	{
+		output = DepthOfFieldSqrt(texCoord, u_focusPoint, u_focusScale);
+	}
+	else
+	{
+		output = DepthOfField(texCoord, u_focusPoint, u_focusScale);
+	} 
 
 	gl_FragColor = vec4(output, 1.0);
 }

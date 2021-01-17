@@ -107,7 +107,7 @@ struct Uniforms
 			/* 17-20 */ struct { float m_worldToView[16]; }; // built-in u_view will be transform for quad during screen passes
 			/* 21-24 */ struct { float m_viewToProj[16]; };	 // built-in u_proj will be transform for quad during screen passes
 
-			/* 25    */ struct { float m_sharpenMaximum; float unused25[3]; };
+			/* 25    */ struct { float m_sharpenMaximum; float m_blurSteps; float m_useSqrtDistribution; float m_unused25; };
 			/* 26    */ struct { float m_maxBlurSize; float m_focusPoint; float m_focusScale; float m_radiusScale; };
 		};
 
@@ -1042,6 +1042,8 @@ public:
 				}
 				ImGui::SliderInt("steps debug:", &counter, 0, counter);
 
+				ImGui::Checkbox("use sqrt distribution", &m_useSqrtDistribution);
+				ImGui::SliderFloat("blur steps", &m_blurSteps, 10.f, 100.0f);
 			}
 
 			ImGui::End();
@@ -1269,6 +1271,8 @@ public:
 			m_uniforms.m_focusPoint = m_focusPoint;
 			m_uniforms.m_focusScale = m_focusScale;
 			m_uniforms.m_radiusScale = m_radiusScale;
+			m_uniforms.m_blurSteps = m_blurSteps;
+			m_uniforms.m_useSqrtDistribution = m_useSqrtDistribution ? 1.0f : 0.0f;
 		}
 	}
 
@@ -1373,7 +1377,9 @@ public:
 	float m_maxBlurSize = 20.0f;
 	float m_focusPoint = 1.0f;
 	float m_focusScale = 2.0f;
-	float m_radiusScale = 0.5f;
+	float m_radiusScale = 3.856f;//0.5f;
+	float m_blurSteps = 50.0f;
+	bool m_useSqrtDistribution = false;
 
 	bool m_displayShadows = false;
 	bool m_useNoiseOffset = true;
