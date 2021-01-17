@@ -74,7 +74,7 @@ bgfx::VertexLayout PosTexCoord0Vertex::ms_layout;
 
 struct Uniforms
 {
-	enum { NumVec4 = 25 };
+	enum { NumVec4 = 26 };
 
 	void init() {
 		u_params = bgfx::createUniform("u_params", bgfx::UniformType::Vec4, NumVec4);
@@ -106,6 +106,8 @@ struct Uniforms
 			/* 16    */ struct { float m_lightPosition[3]; float m_displayShadows; };
 			/* 17-20 */ struct { float m_worldToView[16]; }; // built-in u_view will be transform for quad during screen passes
 			/* 21-24 */ struct { float m_viewToProj[16]; };	 // built-in u_proj will be transform for quad during screen passes
+
+			/* 25    */ struct { float m_sharpenMaximum; float m_unused25[3]; };
 		};
 
 		float m_params[NumVec4 * 4];
@@ -267,6 +269,7 @@ public:
 		m_txaaProgram				= loadProgram("vs_tangle_screenquad",	"fs_tangle_txaa");
 		m_linearDepthProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_linear_depth");
 		m_shadowsProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_screen_space_shadows");
+		m_sharpenProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_sharpen");
 
 		// Load some meshes
 		for (uint32_t ii = 0; ii < BX_COUNTOF(s_meshPaths); ++ii)
@@ -345,6 +348,7 @@ public:
 		bgfx::destroy(m_sphereProgram);
 		bgfx::destroy(m_linearDepthProgram);
 		bgfx::destroy(m_shadowsProgram);
+		bgfx::destroy(m_sharpenProgram);
 
 		m_uniforms.destroy();
 
@@ -670,6 +674,10 @@ public:
 					: m_currentColor.m_texture;
 			}
 
+			bgfx::ProgramHandle displayProgram = m_useSharpen
+				? m_sharpenProgram
+				: m_copyProgram;
+
 			if (m_enableTxaa)
 			{
 				// Draw txaa to txaa buffer
@@ -726,7 +734,7 @@ public:
 						);
 					bgfx::setTexture(0, s_color, m_txaaColor.m_texture);
 					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
-					bgfx::submit(view, m_copyProgram);
+					bgfx::submit(view, displayProgram);
 					++view;
 				}
 			}
@@ -751,7 +759,7 @@ public:
 						);
 					bgfx::setTexture(0, s_color, lastTex);
 					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
-					bgfx::submit(view, m_copyProgram);
+					bgfx::submit(view, displayProgram);
 					++view;
 				}
 			}
@@ -818,6 +826,7 @@ public:
 
 			ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
 
+			if (ImGui::CollapsingHeader("scene noise controls"))
 			{
 				ImGui::Text("noise controls:");
 				ImGui::Combo("pattern", &m_noiseType, "none\0dither\0random\0\0");
@@ -842,6 +851,7 @@ public:
 				ImGui::Separator();
 			}
 
+			if (ImGui::CollapsingHeader("temporal denoise controls"))
 			{
 				ImGui::Text("temporal denoise pass controls:");
 				ImGui::Checkbox("use temporal pass", &m_useTemporalPass);
@@ -850,8 +860,8 @@ public:
 				ImGui::Separator();
 			}
 
+			if (ImGui::CollapsingHeader("spatial denoise controls"))
 			{
-				ImGui::Text("spatial denoise pass controls:");
 				ImGui::SliderInt("spatial passes", &m_denoisePasses, 0, DENOISE_MAX_PASSES);
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("set passes to 0 to turn off spatial denoise");
@@ -870,8 +880,8 @@ public:
 				ImGui::Separator();
 			}
 
+			if (ImGui::CollapsingHeader("shadow controls"))
 			{
-				ImGui::Text("shadow controls:");
 				ImGui::Checkbox("screen space radius", &m_useScreenSpaceRadius);
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("define radius in pixels or world units");
@@ -938,6 +948,20 @@ public:
 					ImGui::EndTooltip();
 				}
 				ImGui::Separator();
+			}
+
+			{
+				ImGui::Checkbox("use CAS sharpen", &m_useSharpen);
+				ImGui::SliderFloat("sharpen strength", &m_sharpenStrength, 0.0f, 1.0f);
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::BeginTooltip();
+					ImGui::Text("CAS generates 0,1 value for amount of sharpening needed. then");
+					ImGui::Text("supply user driven weight to control it. something in range of");
+					ImGui::Text("(-0.24, 0) works, want negative to sharpen. providing here 0,1");
+					ImGui::Text("knob to lerp between no sharpen (0) and heavy sharpen (-0.24).");
+					ImGui::EndTooltip();
+				}
 			}
 
 			ImGui::End();
@@ -1102,7 +1126,7 @@ public:
 		m_uniforms.m_useTemporalDepthCompare = m_useTemporalDepthCompare ? 1.0f : 0.0f;
 		m_uniforms.m_temporalSigmaDepth = m_temporalSigmaDepth;
 
-				m_uniforms.m_displayShadows = m_displayShadows ? 1.0f : 0.0f;
+		m_uniforms.m_displayShadows = m_displayShadows ? 1.0f : 0.0f;
 		m_uniforms.m_frameIdx = m_dynamicNoise
 			? float(m_currFrame % 8)
 			: 0.0f;
@@ -1114,6 +1138,11 @@ public:
 
 		mat4Set(m_uniforms.m_worldToView, m_view);
 		mat4Set(m_uniforms.m_viewToProj, m_proj);
+
+		// sharpen
+		{
+			m_uniforms.m_sharpenMaximum = (-0.24f * m_sharpenStrength);
+		}
 
 		// from assao sample, cs_assao_prepare_depths.sc
 		{
@@ -1176,6 +1205,7 @@ public:
 	bgfx::ProgramHandle m_sphereProgram;
 	bgfx::ProgramHandle m_linearDepthProgram;
 	bgfx::ProgramHandle m_shadowsProgram;
+	bgfx::ProgramHandle m_sharpenProgram;
 
 	// Shader uniforms
 	Uniforms m_uniforms;
@@ -1247,6 +1277,9 @@ public:
 	float m_feedbackMax = 0.95f;
 	bool m_applyMitchellFilter = false;
 	bool m_useTxaaSlow = false;
+
+	bool m_useSharpen = true;
+	float m_sharpenStrength = 0.5f;
 
 	bool m_displayShadows = false;
 	bool m_useNoiseOffset = true;
