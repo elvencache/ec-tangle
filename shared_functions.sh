@@ -22,4 +22,8 @@ vec2 GetTexCoordPrevious(vec2 texCoord, vec2 velocity)
 	return texCoordPrev;
 }
 
+float ShadertoyNoise (vec2 uv) {
+	return fract(sin(dot(uv.xy, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
 #endif // SHARED_FUNCTIONS_SH

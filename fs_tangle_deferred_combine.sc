@@ -8,14 +8,11 @@ $input v_texcoord0
 #include "../common/common.sh"
 #include "parameters.sh"
 #include "normal_encoding.sh"
+#include "shared_functions.sh"
 
 SAMPLER2D(s_normal, 0);
 SAMPLER2D(s_depth, 1);
 SAMPLER2D(s_shadows, 2);
-
-float ShadertoyNoise (vec2 uv) {
-	return fract(sin(dot(uv.xy, vec2(12.9898,78.233))) * 43758.5453123);
-}
 
 int ModHelper (float a, float b)
 {

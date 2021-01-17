@@ -6,7 +6,7 @@
 #ifndef PARAMETERS_SH
 #define PARAMETERS_SH
 
-uniform vec4 u_params[26];
+uniform vec4 u_params[27];
 
 #define u_jitterCurr				(u_params[0].xy)
 #define u_jitterPrev				(u_params[0].zw)
@@ -53,7 +53,10 @@ uniform vec4 u_params[26];
 #define u_viewToProj3				(u_params[24])
 
 #define u_sharpenMaximum			(u_params[25].x)
-#define u_focusPoint				(u_params[25].y)
-#define u_focusScale				(u_params[25].z)
+
+#define u_maxBlurSize				(u_params[26].x)
+#define u_focusPoint				(u_params[26].y)
+#define u_focusScale				(u_params[26].z)
+#define u_radiusScale				(u_params[26].w)
 
 #endif // PARAMETERS_SH

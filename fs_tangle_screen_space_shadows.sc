@@ -7,6 +7,7 @@ $input v_texcoord0
 
 #include "../common/common.sh"
 #include "parameters.sh"
+#include "shared_functions.sh"
 
 SAMPLER2D(s_depth, 0);
 
@@ -22,10 +23,6 @@ vec3 NDCToViewspace( vec2 pos, float viewspaceDepth )
 	ret.z = viewspaceDepth;
 
 	return ret;
-}
-
-float ShadertoyNoise (vec2 uv) {
-	return fract(sin(dot(uv.xy, vec2(12.9898,78.233))) * 43758.5453123);
 }
 
 void main()

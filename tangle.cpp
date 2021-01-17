@@ -74,7 +74,7 @@ bgfx::VertexLayout PosTexCoord0Vertex::ms_layout;
 
 struct Uniforms
 {
-	enum { NumVec4 = 26 };
+	enum { NumVec4 = 27 };
 
 	void init() {
 		u_params = bgfx::createUniform("u_params", bgfx::UniformType::Vec4, NumVec4);
@@ -107,7 +107,8 @@ struct Uniforms
 			/* 17-20 */ struct { float m_worldToView[16]; }; // built-in u_view will be transform for quad during screen passes
 			/* 21-24 */ struct { float m_viewToProj[16]; };	 // built-in u_proj will be transform for quad during screen passes
 
-			/* 25    */ struct { float m_sharpenMaximum; float m_focusPoint; float m_focusScale; float m_unused25; };
+			/* 25    */ struct { float m_sharpenMaximum; float unused25[3]; };
+			/* 26    */ struct { float m_maxBlurSize; float m_focusPoint; float m_focusScale; float m_radiusScale; };
 		};
 
 		float m_params[NumVec4 * 4];
@@ -1023,8 +1024,24 @@ public:
 			// depth of field
 			{
 				ImGui::Checkbox("use bokeh dof", &m_useBokehDof);
+				ImGui::SliderFloat("max blur size", &m_maxBlurSize, 10.0f, 50.0f);
 				ImGui::SliderFloat("focusPoint", &m_focusPoint, 1.0f, 20.0f);
 				ImGui::SliderFloat("focusScale", &m_focusScale, 0.0f, 2.0f);
+				ImGui::SliderFloat("radiusScale", &m_radiusScale, 0.5f, 4.0f);
+
+				// having a difficult time reasoning about how many steps are taken when increasing
+				// radius by (scale/radius) so calculate value instead. general pattern, take smaller
+				// steps further from center. maybe use different formula that directly sets steps?
+				const float maxRadius = m_maxBlurSize;
+				float radius = m_radiusScale;
+				int counter = 0;
+				while (radius < maxRadius)
+				{
+					++counter;
+					radius += m_radiusScale / radius;
+				}
+				ImGui::SliderInt("steps debug:", &counter, 0, counter);
+
 			}
 
 			ImGui::End();
@@ -1248,8 +1265,10 @@ public:
 		}
 
 		{
+			m_uniforms.m_maxBlurSize = m_maxBlurSize;
 			m_uniforms.m_focusPoint = m_focusPoint;
 			m_uniforms.m_focusScale = m_focusScale;
+			m_uniforms.m_radiusScale = m_radiusScale;
 		}
 	}
 
@@ -1344,22 +1363,24 @@ public:
 	bool m_enableTxaa = true;
 	float m_feedbackMin = 0.8f;
 	float m_feedbackMax = 0.95f;
-	bool m_applyMitchellFilter = false;
+	bool m_applyMitchellFilter = true;
 	bool m_useTxaaSlow = false;
 
 	bool m_useSharpen = true;
-	float m_sharpenStrength = 0.5f;
+	float m_sharpenStrength = 0.75f;
 
 	bool m_useBokehDof = true;
-	float m_focusPoint = 2.0f;
-	float m_focusScale = 1.0f;
+	float m_maxBlurSize = 20.0f;
+	float m_focusPoint = 1.0f;
+	float m_focusScale = 2.0f;
+	float m_radiusScale = 0.5f;
 
 	bool m_displayShadows = false;
 	bool m_useNoiseOffset = true;
 	float m_shadowRadius = 0.25f;
 	float m_shadowRadiusPixels = 25.0f;
 	int32_t m_shadowSteps = 8;
-	bool m_moveLight = true;
+	bool m_moveLight = false;
 	int32_t m_contactShadowsMode = 1;
 	bool m_useScreenSpaceRadius = false;
 };
