@@ -63,7 +63,6 @@ void main()
 	float gloss = 1.0-roughness;
 	float specPower = 1022.0 * gloss + 2.0;
 
-
 	// transform normal into view space
 	mat4 worldToView = mat4(
 		u_worldToView0,

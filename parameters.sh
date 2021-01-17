@@ -52,6 +52,6 @@ uniform vec4 u_params[26];
 #define u_viewToProj2				(u_params[23])
 #define u_viewToProj3				(u_params[24])
 
-#define u_sharpenMaximum			(u_params[25])
+#define u_sharpenMaximum			(u_params[25].x)
 
 #endif // PARAMETERS_SH
