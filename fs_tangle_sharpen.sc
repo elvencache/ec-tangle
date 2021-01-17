@@ -15,7 +15,6 @@ SAMPLER2D(s_color, 0);
 
 vec3 ContrastAdaptiveSharpening (vec2 texCoord, vec2 texelOffset, float sharpenMaximum)
 {
-
 /*
 * Copyright (c) 2020 Advanced Micro Devices, Inc. All rights reserved. Permission
 * is hereby granted, free of charge, to any person obtaining a copy of this software
@@ -33,6 +32,9 @@ vec3 ContrastAdaptiveSharpening (vec2 texCoord, vec2 texelOffset, float sharpenM
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 * THE SOFTWARE.
 */
+
+// based on details from presentation here:
+// https://gpuopen.com/wp-content/uploads/2019/07/FidelityFX-CAS.pptx
 
 	vec2 du = vec2(texelOffset.x, 0.0);
 	vec2 dv = vec2(0.0, texelOffset.y);
@@ -52,17 +54,17 @@ vec3 ContrastAdaptiveSharpening (vec2 texCoord, vec2 texelOffset, float sharpenM
 	float d_min_g = 0.0 + saturate(min_g);
 	float d_max_g = 1.0 - saturate(max_g);
 
-	// base sharpening amount 'a' decided by value closer to endpoint
 	// add epsilon to avoid division by zero
 	float divisor = max(max_g, 1e-5);
+
+	// base sharpening amount decided by value closer to endpoint
 	float amount = (d_min_g < d_max_g) ? (d_min_g/divisor) : (d_max_g/divisor);
 	amount = sqrt(amount);
 
-	// weight w applied to samples abde, want negative lobes to sharpen
-	// user specified sharpen maximum to control how much. ex: ~0.125
+	// weight w applied to samples a, b, d, and e. want negative lobes to sharpen,
+	// user specified sharpen maximum to control how much. ex: ~0.125. want to avoid
+	// case where w == 0.25 as it will be division by zero. clamp parameter on cpu
 	float w = amount * sharpenMaximum;
-
-	// want to avoid case where 1==4w, clamp sharpenMaximum on cpu
 	return (w*a + w*b + 1.0*c + w*d + w*e) / (w*4.0 + 1.0);
 }
 
