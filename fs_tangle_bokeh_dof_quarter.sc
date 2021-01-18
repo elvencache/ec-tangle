@@ -18,15 +18,16 @@ void main()
 {
 	vec2 texCoord = v_texcoord0.xy;
 
-	vec3 output;
+	// returns dof color in xyz, sample size in w.
+	vec4 output;
 	if (0.0 < u_useSqrtDistribution)
 	{
-		output = DepthOfFieldSqrt(texCoord, u_focusPoint, u_focusScale).xyz;
+		output = DepthOfFieldSqrt(texCoord, u_focusPoint, u_focusScale);
 	}
 	else
 	{
-		output = DepthOfField(texCoord, u_focusPoint, u_focusScale).xyz;
+		output = DepthOfField(texCoord, u_focusPoint, u_focusScale);
 	} 
 
-	gl_FragColor = vec4(output, 1.0);
+	gl_FragColor = output;
 }

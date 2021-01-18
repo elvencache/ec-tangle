@@ -271,7 +271,10 @@ public:
 		m_linearDepthProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_linear_depth");
 		m_shadowsProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_screen_space_shadows");
 		m_sharpenProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_sharpen");
-		m_dofProgram				= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_sp");
+		m_dofSinglePassProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_sp");
+		m_dofDownsampleProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_downsample");
+		m_dofQuarterProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_quarter");
+		m_dofCombineProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_combine");
 
 		// Load some meshes
 		for (uint32_t ii = 0; ii < BX_COUNTOF(s_meshPaths); ++ii)
@@ -351,7 +354,10 @@ public:
 		bgfx::destroy(m_linearDepthProgram);
 		bgfx::destroy(m_shadowsProgram);
 		bgfx::destroy(m_sharpenProgram);
-		bgfx::destroy(m_dofProgram);
+		bgfx::destroy(m_dofSinglePassProgram);
+		bgfx::destroy(m_dofDownsampleProgram);
+		bgfx::destroy(m_dofQuarterProgram);
+		bgfx::destroy(m_dofCombineProgram);
 
 		m_uniforms.destroy();
 
@@ -747,20 +753,7 @@ public:
 				// optionally, apply dof
 				if (m_useBokehDof)
 				{
-					bgfx::setViewName(view, "bokeh dof single pass");
-					bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
-					bgfx::setViewTransform(view, NULL, orthoProj);
-					bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
-					bgfx::setState(0
-						| BGFX_STATE_WRITE_RGB
-						| BGFX_STATE_WRITE_A
-						| BGFX_STATE_DEPTH_TEST_ALWAYS
-						);
-					bgfx::setTexture(0, s_color, lastTex);
-					bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
-					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
-					bgfx::submit(view, m_dofProgram);
-					++view;
+					view = drawDepthOfField(view, lastTex, orthoProj, caps->originBottomLeft);
 				}
 
 			}
@@ -802,20 +795,7 @@ public:
 				// optionally, apply dof
 				if (m_useBokehDof)
 				{
-					bgfx::setViewName(view, "bokeh dof single pass");
-					bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
-					bgfx::setViewTransform(view, NULL, orthoProj);
-					bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
-					bgfx::setState(0
-						| BGFX_STATE_WRITE_RGB
-						| BGFX_STATE_WRITE_A
-						| BGFX_STATE_DEPTH_TEST_ALWAYS
-						);
-					bgfx::setTexture(0, s_color, lastTex);
-					bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
-					screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, caps->originBottomLeft);
-					bgfx::submit(view, m_dofProgram);
-					++view;
+					view = drawDepthOfField(view, lastTex, orthoProj, caps->originBottomLeft);
 				}
 			}
 
@@ -1024,6 +1004,7 @@ public:
 			// depth of field
 			{
 				ImGui::Checkbox("use bokeh dof", &m_useBokehDof);
+				ImGui::Checkbox("use single pass", &m_useSinglePassBokehDof);
 				ImGui::SliderFloat("max blur size", &m_maxBlurSize, 10.0f, 50.0f);
 				ImGui::SliderFloat("focusPoint", &m_focusPoint, 1.0f, 20.0f);
 				ImGui::SliderFloat("focusScale", &m_focusScale, 0.0f, 2.0f);
@@ -1116,6 +1097,91 @@ public:
 		meshSubmit(m_ground, _pass, _program, mtx);
 	}
 
+	bgfx::ViewId drawDepthOfField(bgfx::ViewId _pass, bgfx::TextureHandle _colorTexture, float* _orthoProj, bool _originBottomLeft)
+	{
+		bgfx::ViewId view = _pass;
+		bgfx::TextureHandle lastTex = _colorTexture;
+
+		if (m_useSinglePassBokehDof)
+		{
+			bgfx::setViewName(view, "bokeh dof single pass");
+			bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
+			bgfx::setViewTransform(view, NULL, _orthoProj);
+			bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+			bgfx::setState(0
+				| BGFX_STATE_WRITE_RGB
+				| BGFX_STATE_WRITE_A
+				| BGFX_STATE_DEPTH_TEST_ALWAYS
+				);
+			bgfx::setTexture(0, s_color, lastTex);
+			bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
+			screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, _originBottomLeft);
+			bgfx::submit(view, m_dofSinglePassProgram);
+			++view;
+		}
+		else
+		{
+			unsigned halfWidth = (m_width/2);
+			unsigned halfHeight = (m_height/2);
+
+			bgfx::setViewName(view, "bokeh dof downsample");
+			bgfx::setViewRect(view, 0, 0, uint16_t(halfWidth), uint16_t(halfHeight));
+			bgfx::setViewTransform(view, NULL, _orthoProj);
+			bgfx::setViewFrameBuffer(view, m_dofQuarterInput.m_buffer);
+			bgfx::setState(0
+				| BGFX_STATE_WRITE_RGB
+				| BGFX_STATE_WRITE_A
+				| BGFX_STATE_DEPTH_TEST_ALWAYS
+				);
+			bgfx::setTexture(0, s_color, lastTex);
+			bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
+			screenSpaceQuad(float(halfWidth), float(halfHeight), m_texelHalf, _originBottomLeft);
+			bgfx::submit(view, m_dofDownsampleProgram);
+			++view;
+			lastTex = m_dofQuarterInput.m_texture;
+
+			/*
+				replace the copy with bokeh dof combine
+				able to read circle of confusion and color from downsample pass
+				along with full res color and depth?
+				do we need half res depth? i'm confused about that...
+			*/
+
+			bgfx::setViewName(view, "bokeh dof quarter");
+			bgfx::setViewRect(view, 0, 0, uint16_t(halfWidth), uint16_t(halfHeight));
+			bgfx::setViewTransform(view, NULL, _orthoProj);
+			bgfx::setViewFrameBuffer(view, m_dofQuarterOutput.m_buffer);
+			bgfx::setState(0
+				| BGFX_STATE_WRITE_RGB
+				| BGFX_STATE_WRITE_A
+				| BGFX_STATE_DEPTH_TEST_ALWAYS
+				);
+			bgfx::setTexture(0, s_color, lastTex);
+			bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
+			screenSpaceQuad(float(halfWidth), float(halfHeight), m_texelHalf, _originBottomLeft);
+			bgfx::submit(view, m_dofQuarterProgram);
+			++view;
+			lastTex = m_dofQuarterOutput.m_texture;
+
+			bgfx::setViewName(view, "bokeh dof combine");
+			bgfx::setViewRect(view, 0, 0, uint16_t(m_width), uint16_t(m_height));
+			bgfx::setViewTransform(view, NULL, _orthoProj);
+			bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+			bgfx::setState(0
+				| BGFX_STATE_WRITE_RGB
+				| BGFX_STATE_WRITE_A
+				| BGFX_STATE_DEPTH_TEST_ALWAYS
+				);
+			bgfx::setTexture(0, s_color, _colorTexture);
+			bgfx::setTexture(1, s_previousColor, lastTex);
+			screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, _originBottomLeft);
+			bgfx::submit(view, m_dofCombineProgram);
+			++view;
+		}
+
+		return view;
+	}
+
 	void createFramebuffers()
 	{
 		m_size[0] = m_width;
@@ -1148,6 +1214,11 @@ public:
 		m_previousDenoise.init(m_size[0], m_size[1], bgfx::TextureFormat::RG11B10F, bilinearFlags);
 		m_linearDepth.init(m_size[0], m_size[1], bgfx::TextureFormat::R16F, pointSampleFlags);
 		m_shadows.init(m_size[0], m_size[1], bgfx::TextureFormat::R16F, pointSampleFlags);
+
+		unsigned halfWidth = m_size[0]/2;
+		unsigned halfHeight = m_size[1]/2;
+		m_dofQuarterInput.init(halfWidth, halfHeight, bgfx::TextureFormat::RGBA16F, bilinearFlags);
+		m_dofQuarterOutput.init(halfWidth, halfHeight, bgfx::TextureFormat::RGBA16F, bilinearFlags);
 	}
 
 	// all buffers set to destroy their textures
@@ -1164,6 +1235,8 @@ public:
 		m_previousDenoise.destroy();
 		m_linearDepth.destroy();
 		m_shadows.destroy();
+		m_dofQuarterInput.destroy();
+		m_dofQuarterOutput.destroy();
 	}
 
 	void updateUniforms()
@@ -1267,10 +1340,10 @@ public:
 		}
 
 		{
-			m_uniforms.m_maxBlurSize = m_maxBlurSize;
+			m_uniforms.m_maxBlurSize = m_useSinglePassBokehDof ? m_maxBlurSize : m_maxBlurSize*0.5f;
 			m_uniforms.m_focusPoint = m_focusPoint;
 			m_uniforms.m_focusScale = m_focusScale;
-			m_uniforms.m_radiusScale = m_radiusScale;
+			m_uniforms.m_radiusScale = m_useSinglePassBokehDof ? m_radiusScale : m_radiusScale*0.5f;
 			m_uniforms.m_blurSteps = m_blurSteps;
 			m_uniforms.m_useSqrtDistribution = m_useSqrtDistribution ? 1.0f : 0.0f;
 		}
@@ -1297,7 +1370,10 @@ public:
 	bgfx::ProgramHandle m_linearDepthProgram;
 	bgfx::ProgramHandle m_shadowsProgram;
 	bgfx::ProgramHandle m_sharpenProgram;
-	bgfx::ProgramHandle m_dofProgram;
+	bgfx::ProgramHandle m_dofSinglePassProgram;
+	bgfx::ProgramHandle m_dofDownsampleProgram;
+	bgfx::ProgramHandle m_dofQuarterProgram;
+	bgfx::ProgramHandle m_dofCombineProgram;
 
 	// Shader uniforms
 	Uniforms m_uniforms;
@@ -1325,6 +1401,8 @@ public:
 	RenderTarget m_previousDenoise; // color output by first spatial denoise pass, input to next frame as previous color
 	RenderTarget m_linearDepth;
 	RenderTarget m_shadows;
+	RenderTarget m_dofQuarterInput;
+	RenderTarget m_dofQuarterOutput;
 
 	struct Model
 	{
@@ -1374,6 +1452,7 @@ public:
 	float m_sharpenStrength = 0.75f;
 
 	bool m_useBokehDof = true;
+	bool m_useSinglePassBokehDof = true;
 	float m_maxBlurSize = 20.0f;
 	float m_focusPoint = 1.0f;
 	float m_focusScale = 2.0f;
