@@ -13,6 +13,8 @@
 
 float GetBlurSize (float depth, float focusPoint, float focusScale)
 {
+	// by this definition, circle of confusion will be negative for objects farther than
+	// focal plane and positive for nearer objects. positive correlates to foreground.
 	float circleOfConfusion = clamp((1.0/focusPoint - 1.0/depth) * focusScale, -1.0, 1.0);
 	return abs(circleOfConfusion) * u_maxBlurSize;
 }
@@ -22,6 +24,7 @@ float GetBlurSize (float packedCircleOfConfusion) {
 	return abs(circleSize) * u_maxBlurSize;
 }
 
+/*
 // this is the function at bottom of blog post...
 vec3 OriginalDepthOfField (vec2 texCoord, float focusPoint, float focusScale)
 {
@@ -49,13 +52,41 @@ vec3 OriginalDepthOfField (vec2 texCoord, float focusPoint, float focusScale)
 	}
 	return color * (1.0/total);
 }
+*/
+
+void GetColorAndBlurSize (
+	BgfxSampler2D samplerColor,
+	BgfxSampler2D samplerDepth,
+	vec2 texCoord,
+	float focusPoint,
+	float focusScale,
+	out vec3 outColor,
+	out float outBlurSize,
+	out float outDepth
+) {
+#if 1
+	vec3 color = texture2D(samplerColor, texCoord).xyz;
+	float depth = texture2D(samplerDepth, texCoord).x;
+	float blurSize = GetBlurSize(depth, focusPoint, focusScale);
+
+	outColor = color;
+	outBlurSize = abs(blurSize);
+	outDepth = depth;
+#else
+#endif
+}
 
 // modified version that offsets rotation by noise, to reduce banding at lower sample counts
-vec4 DepthOfField (vec2 texCoord, float focusPoint, float focusScale)
-{
-	float depth = texture2D(s_depth, texCoord).x;
+vec4 DepthOfField (
+	BgfxSampler2D samplerColor,
+	BgfxSampler2D samplerDepth,
+	vec2 texCoord,
+	float focusPoint,
+	float focusScale
+) {
+	float depth = texture2D(samplerDepth, texCoord).x;
 	float centerSize = GetBlurSize(depth, focusPoint, focusScale);
-	vec3 color = texture2D(s_color, texCoord).xyz;
+	vec3 color = texture2D(samplerColor, texCoord).xyz;
 
 	// as sample count gets lower, visible banding. disrupt with noise.
 	// use a better random/noise/dither function than this..
@@ -71,16 +102,17 @@ vec4 DepthOfField (vec2 texCoord, float focusPoint, float focusScale)
 	while (radius < u_maxBlurSize)
 	{
 		vec2 spiralCoord = texCoord + vec2(cos(theta), sin(theta)) * u_viewTexel.xy * radius;
-		vec3 sampleColor = texture2D(s_color, spiralCoord).xyz;
-		float sampleDepth = texture2D(s_depth, spiralCoord).x;
 
+		vec3 sampleColor = texture2D(samplerColor, spiralCoord).xyz;
+		float sampleDepth = texture2D(samplerDepth, spiralCoord).x;
 		float sampleSize = GetBlurSize(sampleDepth, focusPoint, focusScale);
+
 		if (sampleDepth > depth)
 		{
 			sampleSize = clamp(sampleSize, 0.0, centerSize*2.0);
 		}
 		float m = smoothstep(radius-0.5, radius+0.5, sampleSize);
-		color.xyz += mix(color/total, sampleColor, m);
+		color += mix(color/total, sampleColor, m);
 		totalSampleSize += sampleSize;
 		total += 1.0;
 
@@ -96,11 +128,16 @@ vec4 DepthOfField (vec2 texCoord, float focusPoint, float focusScale)
 
 // modified version that offsets rotation by noise, to reduce banding at lower sample counts
 // also uses sqrt distribution for directly choosing sample count, visually similar
-vec4 DepthOfFieldSqrt (vec2 texCoord, float focusPoint, float focusScale)
-{
-	float depth = texture2D(s_depth, texCoord).x;
+vec4 DepthOfFieldSqrt (
+	BgfxSampler2D samplerColor,
+	BgfxSampler2D samplerDepth,
+	vec2 texCoord,
+	float focusPoint,
+	float focusScale
+) {
+	float depth = texture2D(samplerDepth, texCoord).x;
 	float centerSize = GetBlurSize(depth, focusPoint, focusScale);
-	vec4 color = vec4(texture2D(s_color, texCoord).xyz, 1.0);
+	vec3 color = texture2D(samplerColor, texCoord).xyz;
 
 	// as sample count gets lower, visible banding. disrupt with noise.
 	// use a better random/noise/dither function than this..
@@ -112,13 +149,14 @@ vec4 DepthOfFieldSqrt (vec2 texCoord, float focusPoint, float focusScale)
 	float total = 1.0;
 
 	float radiusFraction = 0.5 / u_blurSteps;
+	float totalSampleSize = 0.0;
 	while (radiusFraction < 1.0)
 	{
 		float radius = sqrt(radiusFraction) * u_maxBlurSize;
 
 		vec2 spiralCoord = texCoord + vec2(cos(theta), sin(theta)) * u_viewTexel.xy * radius;
-		vec3 sampleColor = texture2D(s_color, spiralCoord).xyz;
-		float sampleDepth = texture2D(s_depth, spiralCoord).x;
+		vec3 sampleColor = texture2D(samplerColor, spiralCoord).xyz;
+		float sampleDepth = texture2D(samplerDepth, spiralCoord).x;
 
 		float sampleSize = GetBlurSize(sampleDepth, focusPoint, focusScale);
 		if (sampleDepth > depth)
@@ -126,15 +164,18 @@ vec4 DepthOfFieldSqrt (vec2 texCoord, float focusPoint, float focusScale)
 			sampleSize = clamp(sampleSize, 0.0, centerSize*2.0);
 		}
 		float m = smoothstep(radius-0.5, radius+0.5, sampleSize);
-		color.xyz += mix(color/total, sampleColor, m);
-		color.w += sampleSize;
+		color += mix(color/total, sampleColor, m);
+		totalSampleSize += sampleSize;
 		total += 1.0;
 
 		radiusFraction += (1.0 / u_blurSteps);
 		theta += thetaStep;
 	}
 
-	return color * (1.0/total);
+	color *= (1.0/total);
+	float averageSampleSize = totalSampleSize / (total-1.0);
+
+	return vec4(color, averageSampleSize);
 }
 
 #endif
