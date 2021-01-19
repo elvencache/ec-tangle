@@ -138,7 +138,6 @@ vec4 DepthOfField (
 		if (sampleDepth > depth)
 #endif
 		{
-			//sampleSize = clamp(sampleSize, 0.0, centerSize*2.0);
 			absSampleSize = clamp(absSampleSize, 0.0, absCenterSize*2.0);
 		}
 		float m = smoothstep(radius-0.5, radius+0.5, absSampleSize);
@@ -216,7 +215,6 @@ vec4 DepthOfFieldSqrt (
 		if (sampleDepth > depth)
 #endif
 		{
-			//sampleSize = clamp(sampleSize, 0.0, centerSize*2.0);
 			absSampleSize = clamp(absSampleSize, 0.0, absCenterSize*2.0);
 		}
 		float m = smoothstep(radius-0.5, radius+0.5, absSampleSize);

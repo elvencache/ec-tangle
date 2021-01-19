@@ -136,6 +136,11 @@ struct RenderTarget
 	bgfx::FrameBufferHandle m_buffer;
 };
 
+static float floatFromBool(bool val)
+{
+	return (val) ? 1.0f : 0.0f;
+}
+
 void screenSpaceQuad(float _textureWidth, float _textureHeight, float _texelHalf, bool _originBottomLeft, float _width = 1.0f, float _height = 1.0f)
 {
 	if (3 == bgfx::getAvailTransientVertexBuffer(3, PosTexCoord0Vertex::ms_layout))
@@ -1269,7 +1274,7 @@ public:
 
 		m_uniforms.m_feedbackMin = m_feedbackMin;
 		m_uniforms.m_feedbackMax = m_feedbackMax;
-		m_uniforms.m_applyMitchellFilter = m_applyMitchellFilter ? 1.0f : 0.0f;
+		m_uniforms.m_applyMitchellFilter = floatFromBool(m_applyMitchellFilter);
 
 		mat4Set(m_uniforms.m_worldToViewPrev, m_worldToViewPrev);
 		mat4Set(m_uniforms.m_viewToProjPrev, m_viewToProjPrev);
@@ -1277,26 +1282,21 @@ public:
 		m_uniforms.m_noiseType = float(m_noiseType);
 		m_uniforms.m_sigmaDepth = m_sigmaDepth;
 		m_uniforms.m_sigmaNormal = m_sigmaNormal;
-		m_uniforms.m_useTemporalDepthCompare = m_useTemporalDepthCompare ? 1.0f : 0.0f;
+		m_uniforms.m_useTemporalDepthCompare = floatFromBool(m_useTemporalDepthCompare);
 		m_uniforms.m_temporalSigmaDepth = m_temporalSigmaDepth;
 
-		m_uniforms.m_displayShadows = m_displayShadows ? 1.0f : 0.0f;
+		m_uniforms.m_displayShadows = floatFromBool(m_displayShadows);
 		m_uniforms.m_frameIdx = m_dynamicNoise
 			? float(m_currFrame % 8)
 			: 0.0f;
 		m_uniforms.m_shadowRadius = m_useScreenSpaceRadius ? m_shadowRadiusPixels : m_shadowRadius;
 		m_uniforms.m_shadowSteps = float(m_shadowSteps);
-		m_uniforms.m_useNoiseOffset = m_useNoiseOffset ? 1.0f : 0.0f;
+		m_uniforms.m_useNoiseOffset = floatFromBool(m_useNoiseOffset);
 		m_uniforms.m_contactShadowsMode = float(m_contactShadowsMode);
-		m_uniforms.m_useScreenSpaceRadius = m_useScreenSpaceRadius ? 1.0f : 0.0f;
+		m_uniforms.m_useScreenSpaceRadius = floatFromBool(m_useScreenSpaceRadius);
 
 		mat4Set(m_uniforms.m_worldToView, m_view);
 		mat4Set(m_uniforms.m_viewToProj, m_proj);
-
-		// sharpen
-		{
-			m_uniforms.m_sharpenMaximum = (-0.24f * m_sharpenStrength);
-		}
 
 		// from assao sample, cs_assao_prepare_depths.sc
 		{
@@ -1338,13 +1338,21 @@ public:
 			bx::memCopy(m_uniforms.m_lightPosition, viewSpaceLightPosition, 3*sizeof(float));
 		}
 
+		// sharpen
 		{
-			m_uniforms.m_maxBlurSize = m_useSinglePassBokehDof ? m_maxBlurSize : m_maxBlurSize*0.5f;
+			m_uniforms.m_sharpenMaximum = (-0.24f * m_sharpenStrength);
+		}
+
+		// bokeh depth of field
+		{
+			// reduce dimensions by half to go along with smaller render target
+			const float blurScale = (m_useSinglePassBokehDof) ? 1.0f : 0.5f;
+			m_uniforms.m_blurSteps = m_blurSteps;
+			m_uniforms.m_useSqrtDistribution = floatFromBool(m_useSqrtDistribution);
+			m_uniforms.m_maxBlurSize = m_maxBlurSize * blurScale;
 			m_uniforms.m_focusPoint = m_focusPoint;
 			m_uniforms.m_focusScale = m_focusScale;
-			m_uniforms.m_radiusScale = m_useSinglePassBokehDof ? m_radiusScale : m_radiusScale*0.5f;
-			m_uniforms.m_blurSteps = m_blurSteps;
-			m_uniforms.m_useSqrtDistribution = m_useSqrtDistribution ? 1.0f : 0.0f;
+			m_uniforms.m_radiusScale = m_radiusScale * blurScale;
 		}
 	}
 
