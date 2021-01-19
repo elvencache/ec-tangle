@@ -8,6 +8,8 @@ $input v_texcoord0
 #include "../common/common.sh"
 #include "parameters.sh"
 #include "shared_functions.sh"
+
+#define USE_PACKED_COLOR_AND_BLUR	1
 #include "bokeh_dof.sh"
 
 SAMPLER2D(s_color,			0);

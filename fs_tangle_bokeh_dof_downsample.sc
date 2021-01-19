@@ -8,6 +8,7 @@ $input v_texcoord0
 #include "../common/common.sh"
 #include "parameters.sh"
 #include "shared_functions.sh"
+#include "bokeh_dof.sh"
 
 SAMPLER2D(s_color, 0);
 SAMPLER2D(s_depth, 1);
@@ -25,10 +26,7 @@ void main()
 
 	vec3 color = texture2D(s_color, texCoord).xyz;
 	float depth = texture2D(s_depth, texCoord).x;
+	float blurSize = GetBlurSize(depth, u_focusPoint, u_focusScale);
 
-	// returns -1, 1 circle of confusion, pack
-	float circleOfConfusion = GetCircleOfConfusion(depth, u_focusPoint, u_focusScale);
-	float packedCircle = circleOfConfusion * 0.5 + 0.5;
-
-	gl_FragColor = vec4(color, packedCircle);
+	gl_FragColor = vec4(color, blurSize);
 }
