@@ -13,7 +13,6 @@ $input v_texcoord0
 #include "bokeh_dof.sh"
 
 SAMPLER2D(s_color,			0);
-SAMPLER2D(s_depth,			1);
 
 void main()
 {
@@ -23,11 +22,11 @@ void main()
 	vec4 output;
 	if (0.0 < u_useSqrtDistribution)
 	{
-		output = DepthOfFieldSqrt(s_color, s_depth, texCoord, u_focusPoint, u_focusScale);
+		output = DepthOfFieldSqrt(s_color, s_color, texCoord, u_focusPoint, u_focusScale);
 	}
 	else
 	{
-		output = DepthOfField(s_color, s_depth, texCoord, u_focusPoint, u_focusScale);
+		output = DepthOfField(s_color, s_color, texCoord, u_focusPoint, u_focusScale);
 	} 
 
 	gl_FragColor = output;

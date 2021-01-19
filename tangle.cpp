@@ -1157,7 +1157,6 @@ public:
 				| BGFX_STATE_DEPTH_TEST_ALWAYS
 				);
 			bgfx::setTexture(0, s_color, lastTex);
-			bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
 			screenSpaceQuad(float(halfWidth), float(halfHeight), m_texelHalf, _originBottomLeft);
 			bgfx::submit(view, m_dofQuarterProgram);
 			++view;

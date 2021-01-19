@@ -13,13 +13,6 @@ $input v_texcoord0
 SAMPLER2D(s_color, 0);
 SAMPLER2D(s_depth, 1);
 
-float GetCircleOfConfusion (float depth, float focusPoint, float focusScale)
-{
-	float circleOfConfusion = clamp((1.0/focusPoint - 1.0/depth) * focusScale, -1.0, 1.0);
-	// return abs(circleOfConfusion) * u_maxBlurSize;
-	return circleOfConfusion;
-}
-
 void main()
 {
 	vec2 texCoord = v_texcoord0.xy;

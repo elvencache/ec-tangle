@@ -165,9 +165,19 @@ vec4 DepthOfFieldSqrt (
 	float focusPoint,
 	float focusScale
 ) {
-	float depth = texture2D(samplerDepth, texCoord).x;
-	float centerSize = abs(GetBlurSize(depth, focusPoint, focusScale));
-	vec3 color = texture2D(samplerColor, texCoord).xyz;
+	float depth;
+	float centerSize;
+	vec3 color;
+	GetColorAndBlurSize(
+		samplerColor,
+		samplerDepth,
+		texCoord,
+		focusPoint,
+		focusScale,
+		/*out*/color,
+		/*out*/centerSize,
+		/*out*/depth);
+	float absCenterSize = abs(centerSize);
 
 	// as sample count gets lower, visible banding. disrupt with noise.
 	// use a better random/noise/dither function than this..
@@ -185,17 +195,33 @@ vec4 DepthOfFieldSqrt (
 		float radius = sqrt(radiusFraction) * u_maxBlurSize;
 
 		vec2 spiralCoord = texCoord + vec2(cos(theta), sin(theta)) * u_viewTexel.xy * radius;
-		vec3 sampleColor = texture2D(samplerColor, spiralCoord).xyz;
-		float sampleDepth = texture2D(samplerDepth, spiralCoord).x;
 
-		float sampleSize = abs(GetBlurSize(sampleDepth, focusPoint, focusScale));
+		vec3 sampleColor;
+		float sampleDepth;
+		float sampleSize;
+		GetColorAndBlurSize(
+			samplerColor,
+			samplerDepth,
+			spiralCoord,
+			focusPoint,
+			focusScale,
+			/*out*/sampleColor,
+			/*out*/sampleSize,
+			/*out*/sampleDepth);
+		float absSampleSize = abs(sampleSize);
+
+#if USE_PACKED_COLOR_AND_BLUR
+		if (sampleSize > centerSize)
+#else
 		if (sampleDepth > depth)
+#endif
 		{
-			sampleSize = clamp(sampleSize, 0.0, centerSize*2.0);
+			//sampleSize = clamp(sampleSize, 0.0, centerSize*2.0);
+			absSampleSize = clamp(absSampleSize, 0.0, absCenterSize*2.0);
 		}
-		float m = smoothstep(radius-0.5, radius+0.5, sampleSize);
+		float m = smoothstep(radius-0.5, radius+0.5, absSampleSize);
 		color += mix(color/total, sampleColor, m);
-		totalSampleSize += sampleSize;
+		totalSampleSize += absSampleSize;
 		total += 1.0;
 
 		radiusFraction += (1.0 / u_blurSteps);
