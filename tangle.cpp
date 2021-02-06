@@ -1486,7 +1486,7 @@ public:
 	bool m_useSharpen = true;
 	float m_sharpenStrength = 0.75f;
 
-	bool m_useBokehDof = false;
+	bool m_useBokehDof = true;
 	bool m_useSinglePassBokehDof = false;
 	float m_maxBlurSize = 20.0f;
 	float m_focusPoint = 1.0f;
