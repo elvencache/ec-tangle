@@ -1007,7 +1007,7 @@ public:
 				ImGui::Separator();
 			}
 
-			// depth of field
+			if (ImGui::CollapsingHeader("bokeh depth of field"))
 			{
 				ImGui::Checkbox("use bokeh dof", &m_useBokehDof);
 				if (ImGui::IsItemHovered())
@@ -1489,13 +1489,13 @@ public:
 	bool m_useBokehDof = true;
 	bool m_useSinglePassBokehDof = false;
 	float m_maxBlurSize = 20.0f;
-	float m_focusPoint = 1.0f;
+	float m_focusPoint = 4.0f;
 	float m_focusScale = 2.0f;
 	float m_radiusScale = 0.5f;
 	float m_blurSteps = 50.0f;
 	int32_t m_lobeCount = 6;
 	float m_lobePinch = 0.2f;
-	float m_lobeRotation = 0.0f;
+	float m_lobeRotation = 0.5f;
 
 	bool m_displayShadows = false;
 	bool m_useNoiseOffset = true;
