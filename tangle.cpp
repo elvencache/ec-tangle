@@ -74,7 +74,7 @@ bgfx::VertexLayout PosTexCoord0Vertex::ms_layout;
 
 struct Uniforms
 {
-	enum { NumVec4 = 27 };
+	enum { NumVec4 = 28 };
 
 	void init() {
 		u_params = bgfx::createUniform("u_params", bgfx::UniformType::Vec4, NumVec4);
@@ -107,8 +107,9 @@ struct Uniforms
 			/* 17-20 */ struct { float m_worldToView[16]; }; // built-in u_view will be transform for quad during screen passes
 			/* 21-24 */ struct { float m_viewToProj[16]; };	 // built-in u_proj will be transform for quad during screen passes
 
-			/* 25    */ struct { float m_sharpenMaximum; float m_blurSteps; float m_useSqrtDistribution; float m_unused25; };
+			/* 25    */ struct { float m_sharpenMaximum; float m_blurSteps; float m_samplePattern; float m_lobeRotation; };
 			/* 26    */ struct { float m_maxBlurSize; float m_focusPoint; float m_focusScale; float m_radiusScale; };
+			/* 27    */ struct { float m_lobeCount; float m_lobeRadiusMin; float m_lobeRadiusDelta2x; float m_unused27; };
 		};
 
 		float m_params[NumVec4 * 4];
@@ -276,9 +277,9 @@ public:
 		m_linearDepthProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_linear_depth");
 		m_shadowsProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_screen_space_shadows");
 		m_sharpenProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_sharpen");
-		m_dofSinglePassProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_sp");
+		m_dofSinglePassProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_single_pass");
 		m_dofDownsampleProgram		= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_downsample");
-		m_dofQuarterProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_quarter");
+		m_dofQuarterProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_second_pass");
 		m_dofCombineProgram			= loadProgram("vs_tangle_screenquad",	"fs_tangle_bokeh_dof_combine");
 
 		// Load some meshes
@@ -1009,27 +1010,47 @@ public:
 			// depth of field
 			{
 				ImGui::Checkbox("use bokeh dof", &m_useBokehDof);
-				ImGui::Checkbox("use single pass", &m_useSinglePassBokehDof);
-				ImGui::SliderFloat("max blur size", &m_maxBlurSize, 10.0f, 50.0f);
-				ImGui::SliderFloat("focusPoint", &m_focusPoint, 1.0f, 20.0f);
-				ImGui::SliderFloat("focusScale", &m_focusScale, 0.0f, 2.0f);
-				ImGui::SliderFloat("radiusScale", &m_radiusScale, 0.5f, 4.0f);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("turn effect on and off");
 
-				// having a difficult time reasoning about how many steps are taken when increasing
-				// radius by (scale/radius) so calculate value instead. general pattern, take smaller
-				// steps further from center. maybe use different formula that directly sets steps?
-				const float maxRadius = m_maxBlurSize;
-				float radius = m_radiusScale;
-				int counter = 0;
-				while (radius < maxRadius)
+				ImGui::Checkbox("use single pass at full res", &m_useSinglePassBokehDof);
+				if (ImGui::IsItemHovered())
 				{
-					++counter;
-					radius += m_radiusScale / radius;
+					ImGui::BeginTooltip();
+					ImGui::Text("calculate in a single pass at full resolution or use");
+					ImGui::Text("multiple passes to compute at lower res and composite");
+					ImGui::EndTooltip();
 				}
-				ImGui::SliderInt("steps debug:", &counter, 0, counter);
+				ImGui::Separator();
 
-				ImGui::Checkbox("use sqrt distribution", &m_useSqrtDistribution);
-				ImGui::SliderFloat("blur steps", &m_blurSteps, 10.f, 100.0f);
+				ImGui::Text("blur controls:");
+				ImGui::SliderFloat("max blur size", &m_maxBlurSize, 10.0f, 50.0f);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("maximum blur size in screen pixels");
+
+				ImGui::SliderFloat("focusPoint", &m_focusPoint, 1.0f, 20.0f);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("distance to focus plane");
+
+				ImGui::SliderFloat("focusScale", &m_focusScale, 0.0f, 10.0f);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("multiply focus calculation, larger=tighter focus");
+				ImGui::Separator();
+
+				ImGui::Text("bokeh shape and sample controls:");
+				ImGui::SliderFloat("radiusScale", &m_radiusScale, 0.5f, 4.0f);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("controls number of samples taken");
+
+				ImGui::SliderInt("lobe count", &m_lobeCount, 1, 8);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("using triangle lobes to emulate aperture blades");
+
+				ImGui::SliderFloat("lobe pinch", &m_lobePinch, 0.0f, 1.0f);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("adjust lobe shape, 0=round, 1=starry");
+
+				ImGui::SliderFloat("lobe rotation", &m_lobeRotation, -1.0f, 1.0f);
 			}
 
 			ImGui::End();
@@ -1120,6 +1141,7 @@ public:
 				);
 			bgfx::setTexture(0, s_color, lastTex);
 			bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
+			m_uniforms.submit();
 			screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, _originBottomLeft);
 			bgfx::submit(view, m_dofSinglePassProgram);
 			++view;
@@ -1140,6 +1162,7 @@ public:
 				);
 			bgfx::setTexture(0, s_color, lastTex);
 			bgfx::setTexture(1, s_depth, m_linearDepth.m_texture);
+			m_uniforms.submit();
 			screenSpaceQuad(float(halfWidth), float(halfHeight), m_texelHalf, _originBottomLeft);
 			bgfx::submit(view, m_dofDownsampleProgram);
 			++view;
@@ -1162,6 +1185,7 @@ public:
 				| BGFX_STATE_DEPTH_TEST_ALWAYS
 				);
 			bgfx::setTexture(0, s_color, lastTex);
+			m_uniforms.submit();
 			screenSpaceQuad(float(halfWidth), float(halfHeight), m_texelHalf, _originBottomLeft);
 			bgfx::submit(view, m_dofQuarterProgram);
 			++view;
@@ -1178,6 +1202,7 @@ public:
 				);
 			bgfx::setTexture(0, s_color, _colorTexture);
 			bgfx::setTexture(1, s_previousColor, lastTex);
+			m_uniforms.submit();
 			screenSpaceQuad(float(m_width), float(m_height), m_texelHalf, _originBottomLeft);
 			bgfx::submit(view, m_dofCombineProgram);
 			++view;
@@ -1348,11 +1373,14 @@ public:
 			// reduce dimensions by half to go along with smaller render target
 			const float blurScale = (m_useSinglePassBokehDof) ? 1.0f : 0.5f;
 			m_uniforms.m_blurSteps = m_blurSteps;
-			m_uniforms.m_useSqrtDistribution = floatFromBool(m_useSqrtDistribution);
+			m_uniforms.m_lobeCount = float(m_lobeCount);
+			m_uniforms.m_lobeRadiusMin = (1.0f - m_lobePinch);
+			m_uniforms.m_lobeRadiusDelta2x = 2.0f * m_lobePinch;
 			m_uniforms.m_maxBlurSize = m_maxBlurSize * blurScale;
 			m_uniforms.m_focusPoint = m_focusPoint;
 			m_uniforms.m_focusScale = m_focusScale;
 			m_uniforms.m_radiusScale = m_radiusScale * blurScale;
+			m_uniforms.m_lobeRotation = m_lobeRotation;
 		}
 	}
 
@@ -1458,14 +1486,16 @@ public:
 	bool m_useSharpen = true;
 	float m_sharpenStrength = 0.75f;
 
-	bool m_useBokehDof = true;
-	bool m_useSinglePassBokehDof = true;
+	bool m_useBokehDof = false;
+	bool m_useSinglePassBokehDof = false;
 	float m_maxBlurSize = 20.0f;
 	float m_focusPoint = 1.0f;
 	float m_focusScale = 2.0f;
-	float m_radiusScale = 3.856f;//0.5f;
+	float m_radiusScale = 0.5f;
 	float m_blurSteps = 50.0f;
-	bool m_useSqrtDistribution = false;
+	int32_t m_lobeCount = 6;
+	float m_lobePinch = 0.2f;
+	float m_lobeRotation = 0.0f;
 
 	bool m_displayShadows = false;
 	bool m_useNoiseOffset = true;

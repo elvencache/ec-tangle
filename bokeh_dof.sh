@@ -11,12 +11,16 @@
 #define MAX_BLUR_SIZE	(20.0)
 #define RADIUS_SCALE	(0.5)
 
-float GetBlurSize (float depth, float focusPoint, float focusScale)
+float GetCircleOfConfusion (float depth, float focusPoint, float focusScale)
 {
 	// if depth is less than focusPoint, result will be negative. want to keep this
 	// relationship so comparison of (signed) blur size is same as comparing depth.
+	return clamp((1.0/focusPoint - 1.0/depth) * focusScale, -1.0, 1.0);
+}
 
-	float circleOfConfusion = clamp((1.0/focusPoint - 1.0/depth) * focusScale, -1.0, 1.0);
+float GetBlurSize (float depth, float focusPoint, float focusScale)
+{
+	float circleOfConfusion = GetCircleOfConfusion(depth, focusPoint, focusScale);
 	return circleOfConfusion * u_maxBlurSize;
 }
 
@@ -50,8 +54,8 @@ float GetBlurSize (float depth, float focusPoint, float focusScale)
 
 
 void GetColorAndBlurSize (
-	BgfxSampler2D samplerColor,
-	BgfxSampler2D samplerDepth,
+	sampler2D samplerColor,
+	sampler2D samplerDepth,
 	vec2 texCoord,
 	float focusPoint,
 	float focusScale,
@@ -59,15 +63,15 @@ void GetColorAndBlurSize (
 	out float outBlurSize
 ) {
 #if USE_PACKED_COLOR_AND_BLUR
-	vec4 colorAndBlurSize = texture2D(samplerColor, texCoord);
+	vec4 colorAndBlurSize = texture2DLod(samplerColor, texCoord, 0);
 	vec3 color = colorAndBlurSize.xyz;
 	float blurSize = colorAndBlurSize.w;
 
 	outColor = color;
 	outBlurSize = blurSize;
 #else
-	vec3 color = texture2D(samplerColor, texCoord).xyz;
-	float depth = texture2D(samplerDepth, texCoord).x;
+	vec3 color = texture2DLod(samplerColor, texCoord, 0).xyz;
+	float depth = texture2DLod(samplerDepth, texCoord, 0).x;
 	float blurSize = GetBlurSize(depth, focusPoint, focusScale);
 
 	outColor = color;
@@ -75,13 +79,29 @@ void GetColorAndBlurSize (
 #endif
 }
 
+float BokehShapeFromAngle (float lobeCount, float radiusMin, float radiusDelta2x, float rotation, float angle)
+{
+	// don't shape for 0, 1 blades...
+	if (lobeCount <= 1.0f)
+	{
+		return 1.0f;
+	}
+
+	// divide edge into some number of lobes 
+	float invPeriod = lobeCount / (2.0 * 3.1415926);
+	float periodFraction = fract(angle * invPeriod + rotation);
+
+	// apply triangle shape to each lobe to approximate blades of a camera aperture
+	periodFraction = abs(periodFraction - 0.5);
+	return periodFraction*radiusDelta2x + radiusMin;
+}
+
 vec4 DepthOfField(
-	BgfxSampler2D samplerColor,
-	BgfxSampler2D samplerDepth,
+	sampler2D samplerColor,
+	sampler2D samplerDepth,
 	vec2 texCoord,
 	float focusPoint,
-	float focusScale,
-	bool useSqrtDistribution
+	float focusScale
 ) {
 	vec3 color;
 	float centerSize;
@@ -104,40 +124,19 @@ vec4 DepthOfField(
 
 	float total = 1.0;
 	float totalSampleSize = 0.0;
-
-	// support two options for sample distribution ===========================
-	float loopValue;
-	float loopEnd;
-	if (useSqrtDistribution)
-	{
-		// in sqrt distribution, take fixed number of steps, step count
-		// is fraction of full radius, with curve adjusted by sqrt function
-		loopValue = 0.5 / u_blurSteps; // radiusFraction
-		loopEnd = 1.0;
-	}
-	else
-	{
-		// in original distribution, looping value is radius directly,
-		// but radius grows in non-linear way
-		loopValue = u_radiusScale;
-		loopEnd = u_maxBlurSize;
-	}
-	//========================================================================
+	float loopValue = u_radiusScale;
+	float loopEnd = u_maxBlurSize;
 
 	while (loopValue < loopEnd)
 	{
-		//====================================================================
-		float radius;
-		if (useSqrtDistribution) {
-			radius = sqrt(loopValue) * u_maxBlurSize;
-		}
-		else
-		{
-			radius = loopValue;
-		}
-		//====================================================================
-
-		vec2 spiralCoord = texCoord + vec2(cos(theta), sin(theta)) * u_viewTexel.xy * radius;
+		float radius = loopValue;
+		float shapeScale = BokehShapeFromAngle(
+			u_lobeCount,
+			u_lobeRadiusMin,
+			u_lobeRadiusDelta2x,
+			u_lobeRotation,
+			theta);
+		vec2 spiralCoord = texCoord + vec2(cos(theta), sin(theta)) * u_viewTexel.xy * (radius * shapeScale);
 
 		vec3 sampleColor;
 		float sampleSize;
@@ -162,16 +161,7 @@ vec4 DepthOfField(
 		total += 1.0;
 		theta += thetaStep;
 
-		//====================================================================
-		if (useSqrtDistribution)
-		{
-			loopValue += (1.0 / u_blurSteps); // radiusFraction
-		}
-		else
-		{
-			loopValue += (u_radiusScale/loopValue); // radius
-		}
-		//====================================================================
+		loopValue += (u_radiusScale/loopValue);
 	}
 
 	color *= 1.0/total;
