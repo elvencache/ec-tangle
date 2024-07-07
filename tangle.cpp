@@ -240,8 +240,10 @@ public:
 
 		bgfx::Init init;
 		init.type = args.m_type;
-
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset = m_reset;
@@ -330,9 +332,7 @@ public:
 		// Track whether previous results are valid
 		m_havePrevious = false;
 
-		// Get renderer capabilities info.
-		const bgfx::RendererType::Enum renderer = bgfx::getRendererType();
-		m_texelHalf = bgfx::RendererType::Direct3D9 == renderer ? 0.5f : 0.0f;
+		m_texelHalf = 0.0f;
 
 		imguiCreate();
 	}
